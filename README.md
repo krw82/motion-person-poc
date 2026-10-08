@@ -1,15 +1,15 @@
 # motion_person_poc 사용 안내
 
-MP4 동영상에서 사전학습 YOLO11n으로 사람을 탐지하고, 같은 프레임의 MOG2 전경 마스크를
-사람 박스 영역과 결합하여 "움직이는 사람" 조건을 만족하는 순간의 원본 프레임을 JPG로 저장하는
+동영상에서 사전학습 YOLO11n으로 선택한 객체(기본 사람)를 탐지하고, 같은 프레임의 MOG2 전경 마스크를
+객체 박스 영역과 결합하여 움직임 조건을 만족하는 순간의 원본 프레임을 JPG로 저장하는
 캡처 PoC(Proof of Concept, 개념 검증) 프로그램이다. 실행 장치는 CPU이며 고정 카메라 영상을 전제로 한다.
-화면 문구는 영어로, 이 문서와 로그 설명은 한국어로 제공한다 (SPEC.md 17.3).
+영상 창의 문구는 영어로, 간편 CLI의 안내와 이 문서는 한국어로 제공한다 (SPEC.md 17.3).
 
 ## 저장소 범위와 현재 상태
 
 이 저장소는 영상 이벤트 감지 모듈의 소스, 개발 명세, 테스트 및 재현 도구만 포함한다.
-핵심 파일 분석 기능은 구현됐고 로컬 자동 테스트 117개를 통과했다.
-웹캠·RTSP 입력과 실카메라 장시간 운용은 아직 구현·검증하지 않았다.
+핵심 파일 분석 기능은 구현됐고 간편 CLI·웹캠 미리보기를 포함한 로컬 자동 테스트 157개를 통과했다.
+웹캠은 저장 없는 테스트용 미리보기로 지원한다. RTSP 입력과 실카메라 장시간 운용은 아직 구현·검증하지 않았다.
 실제 Windows 실행 검증도 남아 있다. MOG2는 영상 변화 단서이며 걷기·기어다니기 행동 분류가 아니다.
 
 사용자 영상, 캡처, 실행 로그, 진단 미디어, 가상환경과 모델 가중치는 포함하지 않는다.
@@ -27,16 +27,60 @@ python3 -m venv .venv
 .venv/bin/python -c "from ultralytics import YOLO; YOLO('models/yolo11n.pt')"
 ```
 
-Python 3.11 이상을 사용한다. 테스트할 파일을 `videos/demo.mp4`에 직접 준비한 다음 실행한다.
-기본 명령은 사람만 선택하며 `person dog`로 사람과 개를 함께 선택할 수 있다.
+Python 3.11 이상을 사용한다. 설치한 다음 가상환경 활성화 없이 시작할 수 있다.
+
+| 하고 싶은 일 | 명령 |
+| - | - |
+| 메뉴에서 선택 | `./motion` |
+| 웹캠 화면 확인 (저장 없음) | `./motion webcam` |
+| 영상 파일 분석 | `./motion video "영상 파일 경로"` |
+| 영상 경로만으로 분석 | `./motion "영상 파일 경로"` |
+| 설치·모델 확인 (카메라를 열지 않음) | `./motion doctor` |
+
+영상 파일은 원하는 위치에 두면 된다. 공백이 있는 경로는 따옴표로 감싼다.
+`./motion video`만 입력하면 경로를 물어보며, 이 입력란에는 Finder에서 파일을 끌어다 놓아도 된다.
+상호작용이 없는 실행 환경에서 `./motion`만 호출하면 도움말을 표시한다.
+
+기본 대상은 사람이다. 사람과 개를 함께 선택하거나 캡처 간격을 바꾸는 예:
+
+```bash
+./motion webcam --objects 사람 개
+./motion video "videos/demo.mp4" --objects 사람 개 --every 0.5 --mask
+./motion video "videos/demo.mp4" --no-display --fast
+```
+
+간편 영상 명령은 **추적 켜짐, 객체별 최소 저장 간격 0.5초, 탐지 신뢰도 0.4,
+기준 전경 면적 1000픽셀**로 시작한다. 움직임·탐지·추적 확인 조건을 모두 만족해야 캡처하므로
+매초 2장이 보장되지는 않는다. 여러 객체가 같은 프레임에서 저장 조건을 만족해도
+원본 전체 JPG 한 장을 저장한다. `사람`과 `아기`는 모두 모델의 `person` 종류에 해당한다.
+
+`--objects`는 `person dog` 같은 모델의 영문 이름도 지원한다. `--camera 1`로 웹캠을 바꾸고,
+`--output "저장 폴더"`로 영상의 캡처 저장 위치를 지정한다.
+자세한 옵션은 `./motion webcam --help`, `./motion video --help`에서 확인한다.
+모델·기본 결과 폴더는 모듈 위치를 기준으로 찾고, 직접 입력한 상대 경로는 실행한 폴더 기준이다.
+
+입력과 모델은 사전에 준비하며 분석 중 외부 API를 호출하지 않는다.
+캡처는 `captures/<run_id>/`, 로그는 `logs/<run_id>/`에 저장한다.
+시작 시 실제 저장 폴더를 표시하고, 종료 시 처리 프레임과 캡처 수를 알려준다.
+기존 `main.py`의 옵션과 기본값도 유지한다. ROI·추적기 등 상세 조정에는 아래 기존 명령을 사용한다.
 
 ```bash
 .venv/bin/python main.py --video videos/demo.mp4 --classes person dog --track --capture-scope object --cooldown-sec 0.5 --confidence 0.4 --min-object-motion-pixels 1000 --show-mask
 ```
 
-입력과 모델은 사전에 준비하며 분석 중 외부 API를 호출하지 않는다.
-캡처는 `captures/<run_id>/`, 로그는 `logs/<run_id>/`에 저장한다.
-표시 없이 파일을 검사하려면 `--no-display --pace fast`를 추가한다.
+## Windows 간편 실행
+
+기존 Windows 설치 절차로 `.venv`와 모델을 준비한 다음 PowerShell에서 실행한다.
+
+```powershell
+.\motion.cmd
+.\motion.cmd webcam
+.\motion.cmd video "C:\Videos\걷는 사람.mp4"
+.\motion.cmd doctor
+```
+
+`motion.cmd`는 모듈의 `.venv\Scripts\python.exe`를 우선 사용한다.
+Windows 실행과 카메라 화면은 아직 실제 검증하지 않았다.
 
 자동 테스트에는 입력 영상이나 모델 가중치가 필요하지 않다.
 
@@ -47,10 +91,39 @@ Python 3.11 이상을 사용한다. 테스트할 파일을 `videos/demo.mp4`에 
 
 GitHub Actions도 같은 테스트를 Python 3.11 / Ubuntu에서 실행한다.
 
+## 웹캠으로 저장 없이 확인하기
+
+```bash
+./motion webcam
+```
+
+Windows에서는 `.\motion.cmd webcam`을 사용한다.
+카메라 접근 권한을 허용하고 화면의 `PERSON #1` 박스를 확인한다.
+기본 화면은 거울처럼 좌우 반전하며 `--no-mirror`로 끌 수 있다.
+
+- 녹색 박스: 선택한 객체 탐지. 움직임 조건을 만족하지 않아도 표시한다.
+- 노란 박스: 그 객체의 MOG2 전경 조건 충족. 실제 행동 분류는 아니다.
+- 회색 PENDING: 캡처 조건에 쓰기 전 관측 확인 중.
+- 오른쪽 DETECTED / MOVING: 현재 탐지·전경 조건 충족 객체 수.
+- FPS / AGE: 처리 속도와 프레임을 받아 표시 준비할 때까지의 경과 시간.
+- ESC, q 또는 창 닫기로 종료한다. 처음 2초는 배경 초기 학습이다.
+
+이 모드는 **사진·영상·실행 로그를 저장하지 않는다.** 추적 설정 YAML만 임시 파일로 준비하고 종료 시 지운다.
+추론 중 카메라 입력을 최신 한 장으로 교체해 오래된 프레임을 쌓지 않으며,
+배경 초기 학습·표시는 프레임 번호/FPS 대신 실제 경과 시간을 쓴다.
+카메라/드라이버 자체의 지연이나 30 FPS 추론을 보장하는 것은 아니다.
+`--camera 1`은 다른 장치 선택, `--mask`는 별도 움직임 마스크 창,
+`--seconds 30`은 30초 후 자동 종료, `--imgsz 960`은 추론 크기 비교다.
+실제 웹캠 기능은 독립 `webcam_preview.py`이며 기존 `main.py --video` 저장 실행은 유지한다.
+macOS가 `not authorized to capture video`를 반환하면 실행 앱의 카메라 권한을 허용한 뒤
+다시 실행한다. 해당 환경의 카메라 권한이 없어 이번 구현에서 실제 웹캠 영상 표시는 아직 확인하지 못했다.
+권한을 받는 앱은 실행 위치에 따라 Terminal 또는 Codex 등으로 표시될 수 있다.
+CLI·웹캠 검증 범위와 실제 파일 실행 결과는 [간편 CLI 테스트 보고서](docs/cli_webcam_test_report.md)에 있다.
+
 ## 객체 종류와 추적 번호를 보면서 테스트하기
 
 `--classes person dog`로 대상 종류를 선택하고 `--track`으로 객체별 번호를 유지한다.
-기본 명령의 사람 전용 탐지와 전체 쿨다운 동작은 유지된다. 현재 Mac에 준비된 한 명 통행 영상:
+기존 `main.py` 기본 명령의 사람 전용 탐지와 전체 쿨다운 동작은 유지된다. 현재 Mac에 준비된 한 명 통행 영상:
 
 ```bash
 .venv/bin/python main.py --video videos/public_tests/cdnet_single_pass.mp4 --classes person dog --track --capture-scope object --cooldown-sec 0.5 --show-mask --debug-decisions

@@ -171,6 +171,8 @@ def _capture_label(capture: CaptureResult) -> str:
     if capture.status == "COOLDOWN":
         remaining = max(0.0, float(capture.cooldown_remaining_sec))
         return f"COOLDOWN {remaining:.1f}s"
+    if capture.status == "DISABLED":
+        return "SAVING DISABLED"
     return "CAPTURE NONE"
 
 
@@ -197,6 +199,19 @@ def _status_lines(
 ) -> list[str]:
     """화면 상태 문구 (SPEC.md 17.3 의 1~6 번 항목)."""
     qualified = [item for item in decision.persons if item.qualifies]
+    if metrics.get("preview"):
+        return [
+            "WEBCAM PREVIEW | NO IMAGE SAVING",
+            f"DETECTED {len(decision.objects)} MOVING {len(qualified)}",
+            f"STATE {decision.status}",
+            f"TIME {packet.video_time_sec:.1f}s FRAME {packet.frame_index}",
+            "FPS {} AGE {} ms".format(
+                _fmt_float(metrics.get(_METRIC_PROCESSING_FPS)),
+                _fmt_float(metrics.get("frame_age_ms")),
+            ),
+            "GREEN detected | YELLOW motion",
+            "GRAY pending | ESC / Q quit",
+        ]
 
     # 4. 대표 적격 사람: 전경 픽셀 수가 가장 큰 사람.
     if qualified:
@@ -345,7 +360,7 @@ def render_overlay(
     # 4) 상태 패널과 색상 범례 (SPEC.md 17.3).
     if metrics is None:  # 방어: main 은 항상 dict 를 넘기지만 None 도 허용
         metrics = {}
-    if metrics.get("tracking"):
+    if metrics.get("tracking") or metrics.get("preview"):
         # Keep the ID labels and small source frames visible beside the status panel.
         sidebar = np.zeros((max(height, 210), 380, 3), dtype=np.uint8)
         _draw_status_panel(sidebar, _status_lines(packet, decision, capture, metrics),

@@ -29,6 +29,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from capture_manager import CaptureManager
+from console_messages import error_message
 from config import Config, build_config, config_to_dict
 from contracts import (
     EXIT_CODES,
@@ -102,8 +103,11 @@ def _elapsed_ms(started: float) -> float:
     return (time.perf_counter() - started) * 1000.0
 
 
-def _print_error(exc: MotionPersonError) -> None:
+def _print_error(exc: MotionPersonError, *, friendly: bool = False) -> None:
     """오류 코드, 원인, 관련 키/경로를 stderr 로 출력한다 (SPEC.md 21절)."""
+    if friendly:
+        print(error_message(exc), file=sys.stderr)
+        return
     print(f"[{exc.code}] {exc.message}", file=sys.stderr)
     key = exc.context.get("key")
     if key is not None:
@@ -566,14 +570,14 @@ def _run_frame_loop(
 # ---------------------------------------------------------------------------
 
 
-def main(argv: list[str] | None = None) -> int:
+def main(argv: list[str] | None = None, *, friendly: bool = False) -> int:
     """명령행 인자를 받아 실행하고 프로세스 종료 코드를 반환한다."""
     try:
         config = build_config(argv)
     except MotionPersonError as exc:
         # ConfigError(2) 뿐 아니라 파일 부재의 VideoNotFoundError(3) /
         # ModelNotFoundError(4) 도 같은 경로로 종료한다 (SPEC.md 21절).
-        _print_error(exc)
+        _print_error(exc, friendly=friendly)
         return exc.exit_code()
     config_dict = config_to_dict(config)
     run_id = _make_run_id()
@@ -614,7 +618,7 @@ def main(argv: list[str] | None = None) -> int:
             except Exception as log_exc:
                 print(f"[CLEANUP] ERROR event write failed: {log_exc}",
                       file=sys.stderr)
-        _print_error(exc)
+        _print_error(exc, friendly=friendly)
 
     try:
         # 2~3단계: run_id, 캡처 폴더와 로그 폴더를 먼저 만든다(SPEC.md 18.1).
@@ -622,8 +626,8 @@ def main(argv: list[str] | None = None) -> int:
         logger = RunLogger(config.log_dir, run_id)
         logger.start(config_dict, {})
         logger_started = True
-        print(f"run_id: {run_id}")
-        print(f"log dir: {logger.run_dir}")
+        print(f"실행 ID: {run_id}" if friendly else f"run_id: {run_id}")
+        print(f"로그 폴더: {logger.run_dir}" if friendly else f"log dir: {logger.run_dir}")
 
         capture_manager = CaptureManager(
             config.capture_dir,
@@ -632,7 +636,7 @@ def main(argv: list[str] | None = None) -> int:
             scope=config.capture_scope,
         )
         capture_manager.prepare(run_id)
-        print(f"capture dir: {config.capture_dir / run_id}")
+        print(f"캡처 폴더: {config.capture_dir / run_id}" if friendly else f"capture dir: {config.capture_dir / run_id}")
 
         # 4단계: 영상을 열고 메타데이터를 확인한다. RUN_START 시점에는
         # 영상을 아직 열지 않았으므로 메타데이터는 VIDEO_OPENED 에 실어
@@ -781,11 +785,13 @@ def main(argv: list[str] | None = None) -> int:
             except Exception as exc:
                 print(f"[CLEANUP] logger close failed: {exc}", file=sys.stderr)
 
-        print(
-            f"end_reason={final_reason} "
-            f"frames={counters['frames_processed']} "
-            f"captures={counters['successful_capture_count']}"
-        )
+        if friendly:
+            reason = {END_OF_VIDEO: '영상 끝', USER_STOP: '사용자 종료',
+                      USER_INTERRUPT: '사용자 중단', ERROR: '오류'}.get(final_reason, final_reason)
+            print(f"완료: {reason} · {counters['frames_processed']}프레임 처리 · 캡처 {counters['successful_capture_count']}장")
+        else:
+            print(f"end_reason={final_reason} frames={counters['frames_processed']} "
+                  f"captures={counters['successful_capture_count']}")
 
     if error_exc is not None:
         return error_exc.exit_code()

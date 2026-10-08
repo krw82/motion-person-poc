@@ -1,0 +1,8 @@
+#!/bin/sh
+# Use this checkout's virtual environment; activation is unnecessary.
+set -eu
+MOTION_ROOT=$(cd "$(dirname "$0")" && pwd)
+if [ -x "$MOTION_ROOT/.venv/bin/python" ]; then
+    exec "$MOTION_ROOT/.venv/bin/python" "$MOTION_ROOT/cli.py" "$@"
+fi
+exec python3 "$MOTION_ROOT/cli.py" "$@"

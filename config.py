@@ -209,6 +209,11 @@ def validate_config(config: Config) -> None:
     _validate_files(config)
 
 
+def validate_analysis_values(config: Config) -> None:
+    """Validate analysis settings without requiring a video or creating output folders."""
+    _validate_values(config)
+
+
 def _validate_values(config: Config) -> None:
     if (not isinstance(config.target_classes, tuple) or not config.target_classes
             or any(not isinstance(c, str) or not c.strip() or c != c.strip().lower()

@@ -317,7 +317,7 @@ class CaptureResult:
     저장에 실패하면 SAVED 를 반환하지 않고 CaptureSaveError 를 발생시킨다.
     """
 
-    status: Literal["NOT_ELIGIBLE", "COOLDOWN", "SAVED"]
+    status: Literal["NOT_ELIGIBLE", "COOLDOWN", "SAVED", "DISABLED"]
     path: Path | None
     video_time_sec: float
     cooldown_remaining_sec: float
