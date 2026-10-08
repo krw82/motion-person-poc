@@ -1,4 +1,4 @@
-"""Audit logged identities/cooldowns/raw captures and render the two user video results."""
+"""Audit logged identities/cooldowns/raw captures and render diagnostic videos."""
 from collections import Counter, defaultdict
 import argparse
 from dataclasses import fields
@@ -8,6 +8,7 @@ from pathlib import Path
 import sys
 
 import cv2
+import numpy as np
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -19,6 +20,25 @@ from motion_detector import MotionDetector
 from overlay_renderer import render_overlay
 
 RESULTS = ROOT / "test_data/tracking_results"
+
+
+def render_comparison(packet, objects, motion, decision, capture, metrics):
+    """Compare display modes on one decision; crop sidebars, retain capture status below."""
+    height, width = packet.analysis_frame.shape[:2]
+    canvas = np.zeros((height + 68, width * 3, 3), dtype=np.uint8)
+    for column, mode in enumerate(("full", "objects", "none")):
+        rendered = render_overlay(packet, objects, motion, decision, capture, metrics,
+                                  overlay_mode=mode)
+        if mode == "none" and not np.array_equal(rendered, packet.analysis_frame):
+            raise RuntimeError("Hidden overlay changed the analysis image")
+        canvas[36:36 + height, column * width:(column + 1) * width] = rendered[:height, :width]
+        cv2.putText(canvas, f"--overlay {mode}", (column * width + 10, 24),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1, cv2.LINE_AA)
+    status = (f"TIME {packet.video_time_sec:.2f}s | STATE {decision.status} | "
+              f"CAPTURE {capture.status} | TOTAL {metrics['successful_capture_count']}")
+    cv2.putText(canvas, status, (10, height + 58), cv2.FONT_HERSHEY_SIMPLEX,
+                0.5, (255, 255, 255), 1, cv2.LINE_AA)
+    return canvas
 
 
 def evaluate(run):
@@ -119,8 +139,12 @@ def evaluate(run):
                 result = CaptureResult(record["capture_status"], None, packet.video_time_sec, remaining,
                                        saved["capture_sequence"] if saved else None,
                                        tuple(record["saved_track_ids"]))
-                display = render_overlay(packet, objects, motion, decision, result,
-                                         {"tracking": True, "successful_capture_count": running_capture_count})
+                metrics = {"tracking": True, "successful_capture_count": running_capture_count}
+                if run.get("compare_overlays"):
+                    display = render_comparison(packet, objects, motion, decision, result, metrics)
+                else:
+                    display = render_overlay(packet, objects, motion, decision, result, metrics,
+                                             overlay_mode=run.get("overlay_mode", "full"))
                 h, w = display.shape[:2]
                 if h % 2 or w % 2:
                     display = cv2.copyMakeBorder(display, 0, h % 2, 0, w % 2,

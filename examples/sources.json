@@ -1,0 +1,68 @@
+[
+  {
+    "name": "caviar_stop_resume",
+    "prepared_sha256": "f508c40c88e79a84f75bff0f1b24f587d363db12bc056cdb4eac83ea6d762832",
+    "author": "CAVIAR project (EC IST 2001 37540)",
+    "title": "OneStopNoEnter1front",
+    "source_page": "https://groups.inf.ed.ac.uk/vision/DATASETS/CAVIAR/CAVIARDATA1/",
+    "source_url": "https://groups.inf.ed.ac.uk/vision/DATASETS/CAVIAR/CAVIARDATA2/OneStopNoEnter1front/OneStopNoEnter1front.tar.gz",
+    "source_sha256": "53a20a3aaaef6ed640771b8ea25347efa178c42ba97628b2670373dcec633fd1",
+    "license": "CC BY-SA (version unspecified by the official source)",
+    "license_url": "https://groups.inf.ed.ac.uk/vision/DATASETS/CAVIAR/CAVIARDATA1/",
+    "classes": [
+      "person"
+    ],
+    "compare_overlays": true,
+    "output": "examples/results/caviar_overlay_comparison.mp4",
+    "changes": "All 725 official JPEG-sequence frames retained at 384x288, converted via OpenCV MP4V to silent H.264/yuv420p CFR MP4 at the official 25 FPS. Output adds same-frame full/objects/none comparison, titles and a capture-status footer; sidebars are cropped from the comparison.",
+    "purpose": "Fixed-camera functional demo with walking, stopping and resumed movement. No independent accuracy score is provided.",
+    "input": {
+      "path": "examples/videos/caviar_stop_resume.mp4",
+      "frames": 725,
+      "fps": 25.0,
+      "size": [
+        384,
+        288
+      ],
+      "duration_sec": 29.0,
+      "bytes": 2008160,
+      "sha256": "9c0ccb8c429305d05575a5fe5cc447068e1bf47e40816fd4b036a2b5132d4396"
+    },
+    "overlay_mode": "full",
+    "preview": "examples/results/caviar_preview.png",
+    "preview_frame": 400
+  },
+  {
+    "name": "dog_walker_tokyo",
+    "author": "Nesnad",
+    "title": "Pro dog walker - Tokyo - 2024 Nov 1.webm",
+    "source_page": "https://commons.wikimedia.org/wiki/File:Pro_dog_walker_-_Tokyo_-_2024_Nov_1.webm",
+    "source_url": "https://upload.wikimedia.org/wikipedia/commons/0/0c/Pro_dog_walker_-_Tokyo_-_2024_Nov_1.webm",
+    "source_sha256": "4e75c2c36b8465c270101ae4bafaeea54358165b44971739d8d5c8290812129e",
+    "license": "CC BY-SA 4.0",
+    "license_url": "https://creativecommons.org/licenses/by-sa/4.0/",
+    "classes": [
+      "person",
+      "dog"
+    ],
+    "compare_overlays": false,
+    "output": "examples/results/dog_walker_annotated.mp4",
+    "changes": "All 271 decoded original WebM frames retained at 1920x1080, audio removed, directly transcoded to H.264/yuv420p CFR MP4 at reported 30 FPS. Output is resized for analysis to 960x540 and adds object detection/track boxes in objects display mode plus a status sidebar (1340x540).",
+    "purpose": "Person/dog selection and tracking smoke test. Camera movement and occlusion mean this is not a fixed-camera MOG2 accuracy benchmark.",
+    "input": {
+      "path": "examples/videos/dog_walker_tokyo.mp4",
+      "frames": 271,
+      "fps": 30.0,
+      "size": [
+        1920,
+        1080
+      ],
+      "duration_sec": 9.033,
+      "bytes": 7769073,
+      "sha256": "7f96d337ab226de930482d0d3c6afe0b0eff39560f264e224530a9527b403f5a"
+    },
+    "overlay_mode": "objects",
+    "preview": "examples/results/dog_walker_preview.png",
+    "preview_frame": 126
+  }
+]

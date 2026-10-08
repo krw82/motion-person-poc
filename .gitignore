@@ -37,3 +37,9 @@ requirements.lock.txt
 *.webm
 *.avi
 *.mov
+
+# 출처·이용 조건이 기록된 공개 예제 네 개만 포함한다.
+!examples/videos/caviar_stop_resume.mp4
+!examples/videos/dog_walker_tokyo.mp4
+!examples/results/caviar_overlay_comparison.mp4
+!examples/results/dog_walker_annotated.mp4
