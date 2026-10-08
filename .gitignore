@@ -1,0 +1,39 @@
+# 실행 결과와 입력 영상·모델은 로컬에만 보관한다.
+captures/*
+logs/*
+models/*
+videos/*
+!captures/.gitkeep
+!logs/.gitkeep
+!models/.gitkeep
+!videos/.gitkeep
+
+# 공개 데이터 재현에 필요한 URL·체크섬 목록만 포함한다.
+test_data/*
+!test_data/public_sources/
+test_data/public_sources/*
+!test_data/public_sources/manifest.json
+
+# 로컬 환경, 캐시와 인증 정보
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+htmlcov/
+requirements.lock.txt
+.DS_Store
+.env
+.env.*
+*.pem
+*.key
+
+# 루트에 자동 다운로드되는 모델이나 로컬 미디어도 제외한다.
+*.pt
+*.onnx
+*.engine
+*.mp4
+*.webm
+*.avi
+*.mov

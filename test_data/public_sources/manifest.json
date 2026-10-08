@@ -1,0 +1,68 @@
+[
+  {
+    "file": "Walk1.mpg",
+    "url": "https://groups.inf.ed.ac.uk/vision/DATASETS/CAVIAR/CAVIARDATA1/Walk1/Walk1.mpg",
+    "bytes": 7208095,
+    "sha256": "a5d6dc7d7def01c1bdaeea8ff620195c148b366e1a52589bf4e46f15b6daa0c2"
+  },
+  {
+    "file": "wk1gt.xml",
+    "url": "https://groups.inf.ed.ac.uk/vision/DATASETS/CAVIAR/CAVIARDATA1/Walk1/wk1gt.xml",
+    "bytes": 1490491,
+    "sha256": "dfcb8135fe46e7fbbcb7616d93f4f16aee040570185227ecd8c81aaa87de06cd"
+  },
+  {
+    "file": "Meet_WalkSplit.mpg",
+    "url": "https://groups.inf.ed.ac.uk/vision/DATASETS/CAVIAR/CAVIARDATA1/Meet_WalkSplit/Meet_WalkSplit.mpg",
+    "bytes": 7333343,
+    "sha256": "91a5b5c2a3060a02ebd1ee4264ab78ae7681e02d17d16c2546fcc7751c91805e"
+  },
+  {
+    "file": "mws1gt.xml",
+    "url": "https://groups.inf.ed.ac.uk/vision/DATASETS/CAVIAR/CAVIARDATA1/Meet_WalkSplit/mws1gt.xml",
+    "bytes": 2714967,
+    "sha256": "a3f76c5f9539d9bff4730863d503ce979c5dfe5e9595689578eedd4d6bbd790b"
+  },
+  {
+    "file": "OneStopNoEnter1front.mpg",
+    "url": "https://groups.inf.ed.ac.uk/vision/DATASETS/CAVIAR/CAVIARDATA2/OneStopNoEnter1front/OneStopNoEnter1front.mpg",
+    "bytes": 4219007,
+    "sha256": "dbd67e79d4dcd04e74ad2550b273000b4e2ddf31bcf26d3a59d66944420bca1d"
+  },
+  {
+    "file": "fosne1gt.xml",
+    "url": "https://groups.inf.ed.ac.uk/vision/DATASETS/CAVIAR/CAVIARDATA2/OneStopNoEnter1front/fosne1gt.xml",
+    "bytes": 334561,
+    "sha256": "b49c517a289d09875d7a22cec2e6d7a822ae035a1f03105b8d2d8301234e1ec8"
+  },
+  {
+    "file": "pedestrians.zip",
+    "url": "https://changedetection.net/static/dataset/baseline/pedestrians.zip",
+    "bytes": 16169008,
+    "sha256": "4a8a3d86bbabe78c1dc89e8923dfbe89bb1f9f397d2b4ffbc7e321acee1ecff2"
+  },
+  {
+    "file": "fountain01.zip",
+    "url": "https://changedetection.net/static/dataset/dynamicBackground/fountain01.zip",
+    "bytes": 30431380,
+    "sha256": "c2f7ac5619d678d99fb1cc0e40ca35415c2c5bf6204d7d14434dd1eb0cba4f2f"
+  },
+  {
+    "file": "Walk1_jpg.tar.gz",
+    "url": "https://groups.inf.ed.ac.uk/vision/DATASETS/CAVIAR/CAVIARDATA1/Walk1/Walk1_jpg.tar.gz",
+    "bytes": 12965850,
+    "sha256": "24cd5d00f3d50b4797c379bf3ef18a4ebb37d9394b92f3e3fd8e33e340135568"
+  },
+  {
+    "file": "Meet_WalkSplit_jpg.tar.gz",
+    "url": "https://groups.inf.ed.ac.uk/vision/DATASETS/CAVIAR/CAVIARDATA1/Meet_WalkSplit/Meet_WalkSplit_jpg.tar.gz",
+    "bytes": 12995716,
+    "sha256": "595ee47f239b63354f7f94b85eddc5af62ee077f891c7626cb625fac96d7df8c"
+  },
+  {
+    "file": "OneStopNoEnter1front.tar.gz",
+    "url": "https://groups.inf.ed.ac.uk/vision/DATASETS/CAVIAR/CAVIARDATA2/OneStopNoEnter1front/OneStopNoEnter1front.tar.gz",
+    "bytes": 17679377,
+    "sha256": "53a20a3aaaef6ed640771b8ea25347efa178c42ba97628b2670373dcec633fd1"
+  }
+]

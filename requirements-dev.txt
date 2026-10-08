@@ -1,0 +1,6 @@
+# 테스트 및 공개 영상 준비·보고서 생성 도구의 의존성.
+# 실제 추적기 테스트는 ultralytics/torch를 사용하지만 가중치를 내려받지 않는다.
+-r requirements.in
+pytest
+imageio-ffmpeg
+matplotlib
