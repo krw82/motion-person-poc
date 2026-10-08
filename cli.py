@@ -127,6 +127,8 @@ def build_parser():
         mode.add_argument("--objects", "--classes", nargs="+", default=["person"], metavar="대상",
                           help="분석할 대상 (기본 사람). 예: --objects 사람 개")
         mode.add_argument("--mask", "--show-mask", action="store_true", help="움직임 마스크도 표시")
+        mode.add_argument("--overlay", choices=["full", "objects", "none"], default="full",
+                          help="화면 표시: full 전체, objects 객체 박스만, none 박스·패널 숨김 (기본 full)")
         tuning = mode.add_argument_group("탐지 조정 (필요할 때만)")
         tuning.add_argument("--model", type=Path, default=DEFAULT_MODEL, metavar="파일", help="모델 경로 (기본 models/yolo11n.pt)")
         tuning.add_argument("--confidence", type=confidence, default=.4, metavar="0~1", help="탐지 신뢰도 하한 (기본 0.4)")
@@ -236,10 +238,14 @@ def main(argv=None):
         common = ['--model', str(options.model.expanduser()), '--classes', *targets,
                   '--confidence', str(options.confidence), '--imgsz', str(options.imgsz),
                   '--warmup-sec', str(options.warmup_sec),
-                  '--min-object-motion-pixels', str(options.min_object_motion_pixels)]
+                  '--min-object-motion-pixels', str(options.min_object_motion_pixels),
+                  '--overlay', options.overlay]
         if options.mask:
             common.append('--show-mask')
         print(f"분석 대상: {', '.join(TARGET_LABELS.get(target, target) for target in targets)}", flush=True)
+        if options.overlay != "full":
+            label = {"objects": "객체 박스만 · 노란 강조 숨김", "none": "박스·상태 패널 숨김"}[options.overlay]
+            print(f"화면 표시: {label}", flush=True)
         if options.command in ("webcam", "preview"):
             if options.seconds is not None and options.seconds <= 0:
                 parser.error('--seconds는 0보다 큰 시간이어야 해요.')

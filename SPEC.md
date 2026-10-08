@@ -12,6 +12,13 @@ confidence=0.4, min_object_motion_pixels_ref=1000이다. 나머지는 기존 Con
 사용자가 입력한 상대 경로는 호출한 작업 폴더 기준이다. 한국어 대상 별칭은 모델의 종류로 매핑하며
 `사람`·`아기`를 별도 종류로 분류하지 않는다.
 
+화면 표시 선택값 `--overlay full|objects|none`은 Config.overlay_mode로 저장한다.
+full은 기존 표시를 유지한다. objects는 YOLO 객체 박스·라벨과 상태 패널을 유지하고
+전경 박스와 노란 MATCH 강조·범례를 숨긴다. none은 분석 프레임의 복사본만 표시한다.
+`render_overlay(..., overlay_mode=...)`에서도 같은 선택값을 사용한다.
+이 선택값은 판정·추적·저장·로그 로직에 영향을 주지 않으며 JPG는 항상 원본 전체 프레임이다.
+노란 강조는 저장 여부가 아니라 evidence.qualifies를 따른다. 별도 마스크 창은 show_mask로 제어한다.
+
 파일 분석 명세와 별도로 `webcam_preview.py`가 저장 없는 웹캠 시험을 제공한다.
 `webcam_source.py`는 백그라운드에서 최신 프레임 하나를 보관하고 단조 증가 경과 시간을 반환한다.
 이 경로는 CaptureManager/RunLogger를 사용하지 않고 CaptureResult.status=DISABLED로 표시한다.

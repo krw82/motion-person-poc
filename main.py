@@ -526,7 +526,8 @@ def _run_frame_loop(
                     "tracking": config.tracking,
                 }
                 display_frame = render_overlay(
-                    packet, persons, motion, decision, capture, display_metrics
+                    packet, persons, motion, decision, capture, display_metrics,
+                    overlay_mode=config.overlay_mode,
                 )
                 mask_view = (
                     render_mask_view(motion) if window.show_mask else None

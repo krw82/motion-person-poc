@@ -72,6 +72,8 @@ def parse_args(args=None):
     parser.add_argument("--min-object-motion-ratio", type=float, default=.03)
     parser.add_argument("--warmup-sec", type=float, default=2.0)
     parser.add_argument("--show-mask", action="store_true")
+    parser.add_argument("--overlay", choices=["full", "objects", "none"], default="full",
+                        help="화면 표시: full 전체, objects 객체 박스만, none 박스·패널 숨김")
     parser.add_argument("--no-mirror", action="store_true", help="disable mirror view")
     parser.add_argument("--duration-sec", type=float, help="stop after this many live seconds")
     parser.add_argument("--no-display", action="store_true", help="console-only diagnostic; needs --duration-sec")
@@ -100,7 +102,7 @@ def main(args=None) -> int:
                          yolo_imgsz=options.imgsz, analysis_width=options.analysis_width,
                          min_person_motion_pixels_ref=options.min_object_motion_pixels,
                          min_person_motion_ratio=options.min_object_motion_ratio,
-                         warmup_sec=options.warmup_sec)
+                         warmup_sec=options.warmup_sec, overlay_mode=options.overlay)
         processor = PreviewProcessor(config)
         with tempfile.TemporaryDirectory(prefix="motion-person-tracker-") as temporary:
             print("웹캠 미리보기를 준비해요. 사진·영상·로그는 저장하지 않아요.", flush=True)
@@ -108,7 +110,10 @@ def main(args=None) -> int:
             camera = WebcamSource(options.camera)
             width, height = camera.open()
             started = time.perf_counter()
-            print(f"웹캠 {options.camera}: {width}×{height}\n녹색: 탐지됨 · 노란색: 움직임 조건 충족 · 회색: 추적 확인 중\n"
+            colors = {"full": "녹색: 탐지됨 · 노란색: 움직임 조건 충족 · 회색: 추적 확인 중",
+                      "objects": "녹색: 탐지됨 · 회색: 추적 확인 중 · 노란 강조 숨김",
+                      "none": "박스·상태 패널을 숨기고 카메라 화면을 표시해요."}[config.overlay_mode]
+            print(f"웹캠 {options.camera}: {width}×{height}\n{colors}\n"
                   f"처음 {options.warmup_sec:g}초는 배경 학습이에요. ESC 또는 q로 종료해요.", flush=True)
             if not options.no_display:
                 window = DisplayWindow(show_mask=options.show_mask)
@@ -128,7 +133,8 @@ def main(args=None) -> int:
                 metrics = {"preview": True, "tracking": True, "processing_fps": fps,
                            "frame_age_ms": max(0, (now - camera.started_perf - elapsed) * 1000)}
                 if window is not None:
-                    display = render_overlay(packet, objects, motion, decision, capture, metrics)
+                    display = render_overlay(packet, objects, motion, decision, capture, metrics,
+                                             overlay_mode=config.overlay_mode)
                     window.show(display, render_mask_view(motion) if options.show_mask else None)
                     if window.poll_key() is not None or window.is_closed():
                         break

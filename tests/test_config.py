@@ -115,6 +115,7 @@ def test_cli_defaults_when_options_omitted(tmp_path: Path) -> None:
     assert config.pace == "realtime"
     assert config.display is True
     assert config.show_mask is False
+    assert config.overlay_mode == "full"
     assert config.fallback_fps is None
     assert config.debug_decisions is False
     assert config.device == "cpu"

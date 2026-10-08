@@ -8,7 +8,7 @@
 ## 저장소 범위와 현재 상태
 
 이 저장소는 영상 이벤트 감지 모듈의 소스, 개발 명세, 테스트 및 재현 도구만 포함한다.
-핵심 파일 분석 기능은 구현됐고 간편 CLI·웹캠 미리보기를 포함한 로컬 자동 테스트 157개를 통과했다.
+핵심 파일 분석 기능은 구현됐고 표시 선택·간편 CLI·웹캠 미리보기를 포함한 로컬 자동 테스트 163개를 통과했다.
 웹캠은 저장 없는 테스트용 미리보기로 지원한다. RTSP 입력과 실카메라 장시간 운용은 아직 구현·검증하지 않았다.
 실제 Windows 실행 검증도 남아 있다. MOG2는 영상 변화 단서이며 걷기·기어다니기 행동 분류가 아니다.
 
@@ -119,6 +119,31 @@ macOS가 `not authorized to capture video`를 반환하면 실행 앱의 카메�
 다시 실행한다. 해당 환경의 카메라 권한이 없어 이번 구현에서 실제 웹캠 영상 표시는 아직 확인하지 못했다.
 권한을 받는 앱은 실행 위치에 따라 Terminal 또는 Codex 등으로 표시될 수 있다.
 CLI·웹캠 검증 범위와 실제 파일 실행 결과는 [간편 CLI 테스트 보고서](docs/cli_webcam_test_report.md)에 있다.
+
+## 화면의 박스·강조 표시 선택하기
+
+노란 테두리는 움직임 조건을 만족한 객체의 화면 강조다. 캡처 저장 순간뿐 아니라
+그 조건을 만족하는 동안 계속 표시하며 쿨다운 중에도 표시한다.
+저장 JPG는 항상 박스·문구가 없는 원본 전체 프레임이다.
+
+| 선택값 | 표시 내용 |
+| - | - |
+| `--overlay full` | 기존 전체 표시: 객체 박스·번호, 빨간 전경 박스, 노란 움직임 강조, 상태 패널 (기본값) |
+| `--overlay objects` | 객체 박스·번호와 상태 패널. 노란 강조·MATCH 문구와 빨간 전경 박스 숨김 |
+| `--overlay none` | 영상 창에 분석 영상만 표시. 박스·라벨·상태 패널·범례 모두 숨김 |
+
+```bash
+./motion webcam --overlay objects
+./motion webcam --overlay none
+./motion video "videos/demo.mp4" --overlay objects
+./motion video "videos/demo.mp4" --overlay none
+```
+
+어떤 값을 골라도 탐지·추적·움직임 판정·캡처 저장 간격과 로그 동작은 같다.
+`--mask`로 켜는 별도 마스크 창은 이 선택과 독립적이다.
+기존 `main.py`, `webcam_preview.py`에서도 같은 `--overlay` 옵션을 사용할 수 있다.
+Python 호출에서는 `Config(overlay_mode="objects")`로 설정하고 렌더러를 직접 쓰는 경우
+`render_overlay(..., overlay_mode="objects")`로 전달한다.
 
 ## 객체 종류와 추적 번호를 보면서 테스트하기
 

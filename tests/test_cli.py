@@ -39,6 +39,7 @@ def test_path_alone_selects_file_profile_from_another_directory(files, tmp_path,
     assert config.model_path == files.model
     assert config.target_classes == ("person",)
     assert config.tracking and config.capture_scope == "object"
+    assert config.overlay_mode == "full"
     assert config.capture_cooldown_sec == .5
     assert config.person_confidence == .4 and config.min_person_motion_pixels_ref == 1000
     assert config.capture_dir == files.root / "captures" and config.log_dir == files.root / "logs"
@@ -52,24 +53,27 @@ def test_video_custom_settings_reach_existing_analyzer(files, tmp_path, monkeypa
     assert cli.main(["video", str(files.video), "--objects", "사람,개", "person", "강아지",
                      "--every", "1", "--output", str(tmp_path / "사진 저장"),
                      "--log-dir", str(tmp_path / "로그 저장"), "--confidence", ".55",
-                     "--imgsz", "960", "--warmup-sec", "1.5", "--mask", "--no-display", "--fast"]) == 5
+                     "--imgsz", "960", "--warmup-sec", "1.5", "--mask", "--no-display", "--fast",
+                     "--overlay", "none"]) == 5
     config, = received
     assert config.target_classes == ("person", "dog")
     assert config.capture_cooldown_sec == 1
     assert config.capture_dir == tmp_path / "사진 저장" and config.log_dir == tmp_path / "로그 저장"
     assert config.person_confidence == .55 and config.yolo_imgsz == 960
     assert config.warmup_sec == 1.5 and config.show_mask and not config.display and config.pace == "fast"
+    assert config.overlay_mode == "none"
 
 
 def test_webcam_controls_reach_preview_without_output_folders(files, monkeypatch):
     received = []
     monkeypatch.setattr(cli, "launch_webcam", lambda args: received.append(parse_preview(args)) or 3)
     assert cli.main(["webcam", "--camera", "1", "--objects", "사람", "개",
-                     "--seconds", "30", "--no-mirror", "--mask"]) == 3
+                     "--seconds", "30", "--no-mirror", "--mask", "--overlay", "objects"]) == 3
     options, = received
     assert options.camera == 1 and options.classes == ["person", "dog"]
     assert options.model == files.model and options.duration_sec == 30
     assert options.no_mirror and options.show_mask and not options.no_display
+    assert options.overlay == "objects"
     assert not (files.root / "captures").exists() and not (files.root / "logs").exists()
 
 
@@ -144,6 +148,7 @@ def test_cancelling_path_prompt_is_clean_exit(files, monkeypatch, exception):
                                          (["webcam", "--seconds", "nan"], "유한한"),
                                          (["webcam", "--confidence", "1.1"], "신뢰도"),
                                          (["webcam", "--objects", ","], "대상 이름"),
+                                         (["webcam", "--overlay", "invalid"], "지원하지 않는 선택"),
                                          (["webcam", "--unknown"], "알 수 없는 옵션")])
 def test_invalid_inputs_show_korean_guidance_and_do_not_start(files, monkeypatch, capsys, args, detail):
     monkeypatch.setattr(cli, "launch_webcam", lambda args: pytest.fail("unexpected camera launch"))

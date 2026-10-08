@@ -66,6 +66,7 @@ class Config:
     # 실행 형태
     display: bool = True
     show_mask: bool = False
+    overlay_mode: str = "full"
     pace: str = "realtime"
     fallback_fps: float | None = None
     metrics_interval_sec: float = 1.0
@@ -124,6 +125,8 @@ def _build_parser() -> argparse.ArgumentParser:
                         help="로그 저장 폴더 (기본 logs)")
     parser.add_argument("--show-mask", action="store_true",
                         help="전경 마스크 창을 추가 표시")
+    parser.add_argument("--overlay", dest="overlay_mode", choices=["full", "objects", "none"],
+                        default=None, help="화면 표시: full 전체, objects 객체 박스만, none 박스·패널 숨김")
     parser.add_argument("--no-display", action="store_true",
                         help="OpenCV 창 없이 실행")
     parser.add_argument("--pace", choices=["realtime", "fast"], default=None,
@@ -183,6 +186,8 @@ def build_config(args: list[str] | None = None) -> Config:
         overrides["log_dir"] = parsed.log_dir
     if parsed.show_mask:
         overrides["show_mask"] = True
+    if parsed.overlay_mode is not None:
+        overrides["overlay_mode"] = parsed.overlay_mode
     if parsed.no_display:
         overrides["display"] = False
     if parsed.pace is not None:
@@ -215,6 +220,9 @@ def validate_analysis_values(config: Config) -> None:
 
 
 def _validate_values(config: Config) -> None:
+    if config.overlay_mode not in ("full", "objects", "none"):
+        raise ConfigError("overlay_mode must be full, objects or none",
+                          context={"key": "overlay_mode"})
     if (not isinstance(config.target_classes, tuple) or not config.target_classes
             or any(not isinstance(c, str) or not c.strip() or c != c.strip().lower()
                    for c in config.target_classes)

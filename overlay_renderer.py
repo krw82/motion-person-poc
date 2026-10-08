@@ -196,6 +196,8 @@ def _status_lines(
     decision: FrameDecision,
     capture: CaptureResult,
     metrics: dict,
+    *,
+    overlay_mode: str = "full",
 ) -> list[str]:
     """화면 상태 문구 (SPEC.md 17.3 의 1~6 번 항목)."""
     qualified = [item for item in decision.persons if item.qualifies]
@@ -209,7 +211,7 @@ def _status_lines(
                 _fmt_float(metrics.get(_METRIC_PROCESSING_FPS)),
                 _fmt_float(metrics.get("frame_age_ms")),
             ),
-            "GREEN detected | YELLOW motion",
+            "GREEN detected | YELLOW motion" if overlay_mode == "full" else "OBJECT BOXES ONLY",
             "GRAY pending | ESC / Q quit",
         ]
 
@@ -268,13 +270,15 @@ def _draw_status_panel(
         )
 
 
-def _draw_legend(frame: np.ndarray, width: int, height: int) -> None:
+def _draw_legend(frame: np.ndarray, width: int, height: int, *, overlay_mode: str = "full") -> None:
     """좌하단에 색상 범례를 작게 그린다 (SPEC.md 17.2)."""
     entries = (
         ("OBJECT", COLOR_PERSON),
         ("FG", COLOR_FG),
         ("MATCH", COLOR_MATCH),
     )
+    if overlay_mode == "objects":
+        entries = entries[:1]
     square = 9
     pad = 6
     gap = 14
@@ -306,12 +310,18 @@ def render_overlay(
     decision: FrameDecision,
     capture: CaptureResult,
     metrics: dict,
+    *,
+    overlay_mode: str = "full",
 ) -> np.ndarray:
     """분석 결과를 그린 display 프레임을 반환한다 (SPEC.md 17.1~17.3).
 
     반환값은 packet.analysis_frame.copy() 위에 박스/라벨/상태를 그린
     새 배열이다. 호출자가 넘긴 프레임과 마스크는 수정하지 않는다.
+    full은 기존 전체 표시, objects는 객체 박스·라벨과 상태만 표시,
+    none은 박스·라벨·패널이 없는 분석 프레임 복사본이다. 판정·저장은 바꾸지 않는다.
     """
+    if overlay_mode not in ("full", "objects", "none"):
+        raise ContractError("overlay_mode must be full, objects or none")
     analysis = packet.analysis_frame
     if (
         not isinstance(analysis, np.ndarray)
@@ -324,10 +334,12 @@ def render_overlay(
         )
 
     display = analysis.copy()  # SPEC.md 11.3
+    if overlay_mode == "none":
+        return display
     height, width = display.shape[:2]
 
     # 1) MOG2 전경 영역: 적색 FG (SPEC.md 17.2).
-    for region in motion.regions:
+    for region in motion.regions if overlay_mode == "full" else ():
         _draw_box(display, region.box, COLOR_FG, _BOX_THICKNESS, width, height)
         _draw_top_label(display, region.box, "FG", COLOR_FG, width, height)
 
@@ -345,7 +357,7 @@ def render_overlay(
 
     # 3) 적격 사람: 노랑 두께 증가 박스 + MATCH 라벨 (decision.persons 의
     #    qualifies 로 매칭, px/ratio 는 실측값을 반올림해 표시).
-    for evidence in decision.persons:
+    for evidence in decision.persons if overlay_mode == "full" else ():
         if not evidence.qualifies:
             continue
         _draw_box(
@@ -363,17 +375,17 @@ def render_overlay(
     if metrics.get("tracking") or metrics.get("preview"):
         # Keep the ID labels and small source frames visible beside the status panel.
         sidebar = np.zeros((max(height, 210), 380, 3), dtype=np.uint8)
-        _draw_status_panel(sidebar, _status_lines(packet, decision, capture, metrics),
+        _draw_status_panel(sidebar, _status_lines(packet, decision, capture, metrics, overlay_mode=overlay_mode),
                            sidebar.shape[1], sidebar.shape[0])
-        _draw_legend(sidebar, sidebar.shape[1], sidebar.shape[0])
+        _draw_legend(sidebar, sidebar.shape[1], sidebar.shape[0], overlay_mode=overlay_mode)
         canvas = np.zeros((sidebar.shape[0], width + sidebar.shape[1], 3), dtype=np.uint8)
         canvas[:height, :width] = display
         canvas[:, width:] = sidebar
         return canvas
     _draw_status_panel(
-        display, _status_lines(packet, decision, capture, metrics), width, height
+        display, _status_lines(packet, decision, capture, metrics, overlay_mode=overlay_mode), width, height
     )
-    _draw_legend(display, width, height)
+    _draw_legend(display, width, height, overlay_mode=overlay_mode)
 
     return display
 
