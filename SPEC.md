@@ -1,5 +1,15 @@
 # motion_person_poc 개발 명세 (문서 버전 1.2 + 웹캠 미리보기·간편 CLI)
 
+**0.2.0 추가 계약:** 설치 가능한 `motion_person` 패키지의 사건 캡처 API를 추가했다.
+`MotionEngine.video(...).start()`와 `MotionEngine.webcam(capture=True).start()`는 같은 분석·사건 엔진을 쓴다.
+전후 포함 최대 10초, 기본 사전 버퍼 3초·종료 대기 3초·후보 간격 0.5초·대표 사진 최대 6장이다.
+종료 대기가 사후 구간이며 종료 후 다시 3초를 더하지 않는다. 길이 제한 시 동일 event_id의 다음 part로 이어간다.
+완료된 파일만 on_event로 전달하고 조기 알림과 Gemini 연결은 제공하지 않는다.
+이 추가 계약은 [README의 사건 묶음 규격](README.md#기본-사건-사진-묶음)과
+[검증 보고서](docs/event_bundle_test_report.md)를 따른다.
+아래 개별 JPG 계약은 기존 `main.py`와 `./motion video`(--events 미지정)에 계속 적용한다.
+구현 파일은 `motion_person/`으로 옮겼으며 루트 모듈은 같은 구현을 가리키는 호환 진입점이다.
+
 `cli.py`는 기존 처리기를 호출하는 간편 실행 진입점이다. macOS/Linux는 `motion`,
 Windows는 `motion.cmd`로 실행한다. 인자 없는 터미널 실행은 메뉴를 표시하고,
 `webcam`은 저장 없는 미리보기, `video <경로>` 또는 경로만 입력하면 파일 분석을 실행한다.

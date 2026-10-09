@@ -26,6 +26,10 @@ requirements.lock.txt
 .DS_Store
 .env
 .env.*
+outputs/
+build/
+dist/
+*.egg-info/
 *.pem
 *.key
 

@@ -8,8 +8,10 @@
 ## 저장소 범위와 현재 상태
 
 이 저장소는 영상 이벤트 감지 모듈의 소스, 개발 명세, 테스트, 재현 도구와 공개 예제 영상을 포함한다.
-핵심 파일 분석 기능은 구현됐고 표시 선택·간편 CLI·웹캠 미리보기를 포함한 로컬 자동 테스트 163개를 통과했다.
-웹캠은 저장 없는 테스트용 미리보기로 지원한다. RTSP 입력과 실카메라 장시간 운용은 아직 구현·검증하지 않았다.
+`motion-person` 0.2.0은 설치 가능한 Python 패키지다. 웹캠과 파일 입력에 공통 분석·사건 캡처 엔진을 제공한다.
+기존 개별 캡처와 저장 없는 웹캠 미리보기 명령도 유지한다. 사건 묶음의 구현·검증 결과는
+[사건 캡처 테스트 보고서](docs/event_bundle_test_report.md)에 있다.
+RTSP 입력과 실카메라 장시간 운용은 아직 구현·검증하지 않았다.
 실제 Windows 실행 검증도 남아 있다. MOG2는 영상 변화 단서이며 걷기·기어다니기 행동 분류가 아니다.
 
 사용자 영상, 캡처, 실행 로그, 가상환경과 모델 가중치는 포함하지 않는다.
@@ -19,6 +21,130 @@
 보고서의 실행 결과 경로는 로컬 재현 시 생성되는 파일 위치다.
 공개 데이터의 다운로드 URL·체크섬은 `test_data/public_sources/manifest.json`에 포함했다.
 실제 입력에 카메라 화면만 들어오면 `--roi`를 생략하고 전체 화면을 분석한다.
+
+## Python 패키지로 사용하기
+
+저장소의 가상환경에서 설치한다. PyPI에 공개 배포한 상태는 아니다. 모델은 패키지에 포함하지 않으며,
+기존 `models/yolo11n.pt` 또는 준비한 모델의 경로를 지정한다.
+
+```bash
+.venv/bin/python -m pip install -e .
+```
+
+```python
+from motion_person import MotionEngine
+
+# 영상: 원본 사진을 사건별로 저장. display=False로 창 없이 처리 가능.
+summary = MotionEngine.video(
+    "input.mp4", objects=("person", "dog"),
+    model_path="models/yolo11n.pt", output_dir="outputs",
+    display=False, pace="fast",
+).start()
+
+# 웹캠 화면 확인: 기본값은 저장 없음.
+MotionEngine.webcam().start()
+
+# 실제 감시: 웹캠에도 영상과 동일한 사건 캡처 엔진을 사용.
+MotionEngine.webcam(
+    camera=0, objects=("person", "dog"),
+    capture=True, output_dir="outputs", overlay="objects",
+).start()
+```
+
+`webCam()`은 `webcam()`의 별칭이다. `start()`는 EOF·종료 키·`stop()`·시간 제한까지 실행한 뒤
+`RunSummary`를 반환한다. `engine.stop()`은 콜백이나 다른 스레드에서 호출할 수 있다.
+한 인스턴스를 동시에 두 번 실행할 수 없으며, 실행이 끝나면 다시 사용할 수 있다.
+카메라 입력 대기/드라이버 종료에는 시간이 걸릴 수 있다. `duration_sec=30`으로 실행 시간을 제한한다.
+패키지의 기본 모델 경로와 직접 입력한 상대 경로는 호출한 작업 폴더 기준이다.
+고급 분석 값은 `Config`로 전달하며, 전달한 Config의 탐지·추적 설정을 그대로 따른다.
+
+## 기본 사건 사진 묶음
+
+```python
+from motion_person import EventConfig, MotionEngine
+
+events = EventConfig(
+    pre_capture_sec=3, quiet_sec=3,
+    max_duration_sec=10, sample_interval_sec=0.5, max_images=6,
+)
+
+def handle_event(bundle):
+    # 완성된 파일 경로를 프로젝트의 분석 작업 큐에 전달하는 위치.
+    print(bundle.event_id, bundle.part_index, bundle.end_reason)
+    print(bundle.image_paths)
+
+engine = MotionEngine.webcam(capture=True, events=events, objects=("person", "dog"))
+summary = engine.start(on_event=handle_event)
+```
+
+| 항목 | 동작 |
+| --- | --- |
+| 시작 | 선택 객체의 YOLO·관측 확인·박스 내부 MOG2 조건을 만족하면 시작 |
+| 사건 범위 | 한 입력 카메라/분석 영역에서 가까운 시간에 발생한 움직임을 묶음. 추적 번호 변경으로 분리하지 않음 |
+| 사전 사진 | 약 0.5초마다 압축한 원본 전체 사진을 메모리에 최대 3초 보관 |
+| 진행/사후 사진 | 시작 뒤에는 움직임·대상 탐지가 없는 프레임도 수집 |
+| 일반 종료 | 마지막 조건 충족 후 3초. 이 대기 구간이 사후 맥락이며 추가 3초를 또 기다리지 않음 |
+| 길이 제한 | **사전·진행·사후를 모두 포함한 최대 10초**. 더 길면 같은 event_id에 part_index만 증가 |
+| 저장 | 시작 전·시작·동작 강한 장면·이후 장면·끝과 시간상 떨어진 사진을 최대 6장 선택 |
+| 전달 | 묶음 파일 저장이 끝난 뒤 `on_event` 1회. 조기 분석/알림 없음 |
+
+10초 제한을 먼저 채우면 현재 묶음을 `MAX_DURATION`으로 닫는다. 이 경우 물리적 행동은 계속될 수 있으며
+`episode_end=False`다. 영상 종료·사용자 종료에서도 관측한 마지막 구간을 저장한다.
+`QUIET`와 `episode_end`는 움직임 수집 상태이며, “개가 책상 위에 있음” 같은 사용자 조건의 해제 판정이 아니다.
+알림 조건의 유지·해제·중복 방지는 실제 프로젝트가 판단해야 한다.
+사전 사진 부족·시간 제한·입력 종료·누락된 수집 구간·메모리 예산 초과에 따른 사진 제거는
+`context_complete`, `pre_context_complete`, `post_context_complete`, `sampling_gap_count`,
+`buffer_dropped_frames`에 표시한다. 없는 사후 사진을 만들어 내지 않는다.
+짧은 사건은 6장보다 적을 수 있다. 0.5초는 **후보 수집 간격**이며, 모든 후보를 파일로 보관하는 설정은 아니다.
+
+3초 종료 기준은 실제 신체가 멈춘 순간이 아니라 **YOLO+MOG2 조건이 꺼진 시점**을 기준으로 한다.
+MOG2 배경 적응 중에는 정지한 대상이 잠시 전경으로 남을 수 있다. 이번 정지 제어 영상에서는
+약 2.08초의 전경 잔류와 종료 대기 3초를 합쳐 실제 정지 후 약 5.08초에 닫혔다.
+
+저장 구조는 다음과 같다. `EventBundle.image_paths`는 절대 경로이며 JPG는 박스·글자·좌우 반전 없는
+원본 전체다. `analysis_roi`를 설정해도 저장 사진은 원본 전체다.
+
+```text
+outputs/<run_id>/
+  run_config.json       실행 설정·버전
+  tracker.yaml          실제 추적 설정 (추적 사용 시)
+  events.jsonl          완료된 묶음·실행 종료·오류
+  summary.json          프레임·묶음·사진 수와 종료 이유
+  events/<event_id>/part_0001/
+    01_before_f00000000.jpg
+    ...
+    event.json          사진 시각·원본 좌표·종류·추적 번호·전경 근거
+```
+
+압축 사진 버퍼의 기본 예산은 64 MiB이며, YOLO/원본 프레임을 포함한 전체 프로세스 메모리 한도는 아니다.
+미완성 버퍼는 종료 시 정리하고, 저장 실패를 성공으로 집계하지 않는다. 디스크 보관 기간·삭제 정책은
+호스트 프로젝트에서 정해야 한다. 패키지는 Gemini·API 키·자연어 규칙·알림 중복 방지·카메라 자동 재연결을
+구현하지 않는다. 해당 기능은 완료된 묶음을 받는 프로젝트에서 확장한다.
+콜백은 처리 스레드에서 실행되므로, 네트워크 분석을 기다리지 않고 짧게 작업 큐에 넣는 방식으로 사용한다.
+콜백이 예외를 내면 실행을 중단하고 자원을 정리하며, 이미 완성한 파일은 남긴다. 오류로 종료하며 보존한
+꼬리 구간은 외부 콜백으로 전달하지 않는다.
+인코딩·묶음 저장 자체가 실패한 미완성 후보는 버리고 오류로 종료한다. 이미 완료한 다른 묶음은 유지한다.
+
+## 사건 묶음을 CLI에서 테스트하기
+
+```bash
+# 웹캠: 저장을 명시적으로 켬. 기본 ./motion webcam은 이전처럼 저장 없음.
+./motion webcam --capture --objects 사람 개 --overlay objects
+./motion webcam --capture --seconds 30 --no-display
+
+# 영상: --events가 없으면 기존 개별 캡처 방식 유지.
+./motion video "examples/videos/caviar_stop_resume.mp4" --events --no-display --fast
+./motion video "input.mp4" --events --objects 사람 개 --output "captures/my_test"
+```
+
+`--max-event-sec`는 10초 이하, `--pre-sec` 기본 3초, `--quiet-sec` 기본 3초,
+`--every`는 후보 수집 간격이다. 사건 모드는 사진·로그를 `--output/<run_id>/` 아래 함께 저장하며
+개별 캡처용 `--log-dir`를 함께 지정하지 않는다. `--mask`는 화면 표시가 켜져 있을 때 사용한다.
+설치 후에는 같은 옵션으로 `motion-person webcam --capture` 또는 `motion-person video ... --events`를 쓸 수 있다.
+
+핵심 구현은 `motion_person/engine.py`(입력·실행·콜백·정리), `processor.py`(공통 탐지·판정),
+`event_capture.py`(버퍼·사건 상태·분할·선택·저장)에 있다. 기존 루트의 같은 이름 모듈들은
+패키지를 호출하는 호환 진입점이며, 기존 `main.py`의 개별 캡처·로그 계약은 유지한다.
 
 ## macOS / Linux 빠른 시작
 
