@@ -47,3 +47,6 @@ dist/
 !examples/videos/dog_walker_tokyo.mp4
 !examples/results/caviar_overlay_comparison.mp4
 !examples/results/dog_walker_annotated.mp4
+
+# Optional frontend example dependencies
+node_modules/

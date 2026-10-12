@@ -10,7 +10,7 @@ import numpy as np
 import pytest
 
 from motion_person import Config, EventConfig, MotionEngine
-from motion_person.contracts import Box, CaptureResult, ConfigError, MotionResult, ObjectDetection, VideoDecodeError, VideoInfo
+from motion_person.contracts import Box, CaptureSaveError, ConfigError, FrameAnalysis, MotionResult, ObjectDetection, VideoDecodeError, VideoInfo
 from motion_person.engine import _mirror_view
 from tests.test_event_capture import frame
 
@@ -32,7 +32,7 @@ def inputs(tmp_path, monkeypatch):
             packet = replace(packet, run_id=self.run_id, raw_frame=raw, analysis_frame=raw)
             observations.append(elapsed)
             motion = MotionResult(np.zeros(raw.shape[:2],np.uint8), (), 0,0,False)
-            return packet, (), motion, decision, CaptureResult("DISABLED",None,elapsed,0,None)
+            return FrameAnalysis(packet=packet, objects=(), motion=motion, decision=decision)
     class Source:
         end_reason = None
         frames_skipped = 0
@@ -49,7 +49,10 @@ def inputs(tmp_path, monkeypatch):
                 return None
             index, t = self.i, self.i / 2
             self.i += 1
-            return index,t,frame(index,t)[0].raw_frame
+            self.latest = index,t,frame(index,t)[0].raw_frame
+            return self.latest
+        def snapshot(self):
+            return getattr(self, "latest", None)
         def close(self):
             self.closed = True
     class Webcam(Source):
@@ -72,8 +75,8 @@ def inputs(tmp_path, monkeypatch):
 def test_file_and_webcam_use_same_completed_bundle_flow(inputs,tmp_path):
     video,resources,observations,_ = inputs
     results = []
-    for engine in (MotionEngine.video(video,output_dir=tmp_path/"file",display=False,pace="fast"),
-                   MotionEngine.webcam(capture=True,output_dir=tmp_path/"camera",display=False)):
+    for engine in (MotionEngine.video(video,diagnostics=True,output_dir=tmp_path/"file",display=False,pace="fast"),
+                   MotionEngine.webcam(capture=True,diagnostics=True,output_dir=tmp_path/"camera",display=False)):
         received=[]
         def completed(bundle):
             assert observations[-1] == 6.5
@@ -105,7 +108,7 @@ def test_preview_does_not_create_output_and_callback_requires_capture(inputs,tmp
 
 def test_stop_from_callback_cleans_up_and_engine_can_be_reused(inputs,tmp_path):
     video,resources,_,_ = inputs
-    engine = MotionEngine.video(video,output_dir=tmp_path/"out",display=False,pace="fast")
+    engine = MotionEngine.video(video,diagnostics=True,output_dir=tmp_path/"out",display=False,pace="fast")
     summaries=[]
     for _ in range(2):
         summary = engine.start(on_event=lambda bundle: engine.stop())
@@ -122,7 +125,7 @@ def test_callback_error_preserves_saved_bundle_and_releases_input(inputs,tmp_pat
     def fail(bundle):
         calls.append(bundle)
         raise RuntimeError("consumer failed")
-    engine = MotionEngine.video(video,output_dir=output,display=False,pace="fast")
+    engine = MotionEngine.video(video,diagnostics=True,output_dir=output,display=False,pace="fast")
     with pytest.raises(RuntimeError,match="consumer failed"):
         engine.start(on_event=fail)
     assert len(calls) == 1 and calls[0].manifest_path.is_file()
@@ -131,9 +134,46 @@ def test_callback_error_preserves_saved_bundle_and_releases_input(inputs,tmp_pat
     assert json.loads(summary.read_text())["end_reason"] == "ERROR"
 
 
+@pytest.mark.parametrize("callback_fails", [False, True])
+def test_completed_callback_survives_next_photo_error_and_preserves_original_error(inputs, tmp_path, monkeypatch, callback_fails):
+    video, resources, _, module = inputs
+    original_source = module.VideoSource
+    class LongSource(original_source):
+        def read(self):
+            index, t = self.i, self.i / 2
+            self.i += 1
+            return index, t, frame(index, t)[0].raw_frame
+    original_process = module.FrameProcessor.process
+    def process(self, raw, index, elapsed):
+        analysis = original_process(self, raw, index, elapsed)
+        _, decision = frame(index, elapsed, elapsed >= 3)
+        if elapsed == 10:
+            monkeypatch.setattr(cv2, "imencode", lambda *args: (False, None))
+        return replace(analysis, decision=decision)
+    monkeypatch.setattr(module, "VideoSource", LongSource)
+    monkeypatch.setattr(module.FrameProcessor, "process", process)
+    calls = []
+    def completed(bundle):
+        assert bundle.manifest_path.is_file() and all(p.is_file() for p in bundle.image_paths)
+        calls.append(bundle)
+        if callback_fails:
+            raise RuntimeError("consumer failed during recovery")
+    engine = MotionEngine.video(video,diagnostics=True, output_dir=tmp_path/"out", display=False, pace="fast")
+    with pytest.raises(CaptureSaveError, match="encoding") as raised:
+        engine.start(on_event=completed)
+    if callback_fails:
+        assert any("consumer failed during recovery" in note for note in raised.value.__notes__)
+    assert len(calls) == 1 and calls[0].end_reason == "MAX_DURATION"
+    assert all(source.closed for source in resources) and not engine._running
+    summary, = (tmp_path/"out").glob("*/summary.json")
+    assert json.loads(summary.read_text())["event_count"] == 1
+    events = [json.loads(line)["event_type"] for line in (summary.parent/"events.jsonl").read_text().splitlines()]
+    assert events.count("EVENT_COMPLETED") == 1
+
+
 def test_eof_flush_and_completion_verified_are_recorded(inputs,tmp_path):
     video,resources,_,_ = inputs
-    engine = MotionEngine.video(video,events=EventConfig(quiet_sec=10),output_dir=tmp_path/"out",display=False,pace="fast")
+    engine = MotionEngine.video(video,diagnostics=True,events=EventConfig(quiet_sec=10),output_dir=tmp_path/"out",display=False,pace="fast")
     received=[]
     summary=engine.start(on_event=received.append)
     assert summary.end_reason == "END_OF_VIDEO" and summary.input_completion_verified
@@ -144,7 +184,7 @@ def test_eof_flush_and_completion_verified_are_recorded(inputs,tmp_path):
 def test_webcam_disconnect_closes_observed_tail_as_error(inputs,tmp_path):
     _,resources,_,_ = inputs
     output = tmp_path/"out"
-    engine = MotionEngine.webcam(capture=True,events=EventConfig(quiet_sec=10),output_dir=output,display=False)
+    engine = MotionEngine.webcam(capture=True,diagnostics=True,events=EventConfig(quiet_sec=10),output_dir=output,display=False)
     received=[]
     with pytest.raises(VideoDecodeError,match="disconnected"):
         engine.start(on_event=received.append)
@@ -167,7 +207,7 @@ def test_model_failure_before_camera_open_or_output_creation(tmp_path):
 @pytest.mark.parametrize("duration", [0,-1,float("nan"),True])
 def test_invalid_duration_fails_before_open(inputs,tmp_path,duration):
     video,resources,_,_ = inputs
-    engine=MotionEngine.video(video,display=False)
+    engine=MotionEngine.video(video,diagnostics=True,display=False)
     with pytest.raises(ConfigError):
         engine.start(duration_sec=duration)
     assert not resources

@@ -8,8 +8,9 @@ import pytest
 
 from motion_person import EventConfig
 from motion_person.contracts import Box, CaptureSaveError, ConfigError, ContractError, FrameDecision, ObjectMotionEvidence
-from motion_person.event_capture import EventCaptureEngine
+from motion_person.event_capture import EventBundle, EventCaptureEngine, EventImage, EventObject, _Sample
 from motion_person.frame_processor import make_packet
+from motion_person.photo_selection import select_photos
 
 
 def frame(index, timestamp, moving=False, *, track=1, class_name="person", empty=False):
@@ -145,7 +146,7 @@ def test_failed_bundle_write_has_no_published_bundle_or_success_counter(tmp_path
     feed(engine, [0,.5,1,1.5,2,2.5,3], lambda t: t == 3)
     def fail(path, data):
         raise OSError("disk full")
-    monkeypatch.setattr(engine, "_write", fail)
+    monkeypatch.setattr(engine.store, "_write", fail)
     with pytest.raises(CaptureSaveError, match="publication"):
         engine.flush()
     assert engine.bundle_count == engine.image_count == 0
@@ -173,7 +174,7 @@ def test_oversized_single_jpeg_fails_explicitly(tmp_path):
 def test_gaps_inside_preroll_also_mark_context_incomplete(tmp_path):
     engine = EventCaptureEngine(tmp_path, "run", "camera:0")
     bundle, = feed(engine, [0,.5,2.5,3,3.5,4,4.5,5,5.5,6], lambda t: t == 3)
-    assert bundle.pre_context_complete and bundle.post_context_complete
+    assert not bundle.pre_context_complete and bundle.post_context_complete
     assert bundle.sampling_gap_count == 1 and not bundle.context_complete
 
 
@@ -218,4 +219,167 @@ def test_representatives_keep_temporal_endpoints_with_configured_photo_limit(tmp
     engine = EventCaptureEngine(tmp_path, "run", "camera:0", config=EventConfig(max_images=max_images))
     bundle, = feed(engine, np.arange(0,7,.5), lambda t: 3 <= t <= 3.5)
     assert len(bundle.images) <= max_images
-    assert bundle.images[0].timestamp_sec == 0 and bundle.images[-1].timestamp_sec == 6.5
+    assert bundle.images[0].timestamp_sec == (3 if max_images == 2 else 0)
+    assert bundle.images[-1].timestamp_sec == 6.5
+
+
+def test_published_bundle_can_be_recovered_once_after_next_part_encoding_fails(tmp_path, monkeypatch):
+    engine = EventCaptureEngine(tmp_path, "run", "camera:0")
+    assert feed(engine, np.arange(0, 10, .5), lambda t: t >= 3) == []
+    monkeypatch.setattr(cv2, "imencode", lambda *args: (False, None))
+    with pytest.raises(CaptureSaveError, match="encoding"):
+        engine.process(*frame(20, 10, True))
+    bundle, = engine.drain_completed()
+    assert bundle.end_reason == "MAX_DURATION" and bundle.part_index == 1
+    assert bundle.manifest_path.is_file() and all(p.is_file() for p in bundle.image_paths)
+    assert engine.bundle_count == 1 and not engine.active
+    assert engine.drain_completed() == engine.flush("ERROR") == ()
+
+
+@pytest.mark.parametrize("track,class_name", [(99, "person"), (None, "dog")])
+def test_brief_new_moving_object_between_ticks_survives_photo_selection(tmp_path, track, class_name):
+    engine = EventCaptureEngine(tmp_path, "run", "camera:0")
+    bundles = []
+    times = sorted([float(t) for t in np.arange(0, 7, .5)] + [3.1, 6.1])
+    for i, t in enumerate(times):
+        bundles.extend(engine.process(*frame(i, t, t in (3, 3.1),
+            track=track if t == 3.1 else 1,
+            class_name=class_name if t == 3.1 else "person", empty=t > 3.1)))
+    bundle, = bundles
+    photo, = [im for im in bundle.images if im.timestamp_sec == 3.1]
+    assert any(o.moving and (o.class_name, o.track_id) == (class_name, track) for o in photo.objects)
+    assert "object" in photo.roles
+    packet, _ = frame(photo.frame_index, 3.1)
+    _, jpeg = cv2.imencode(".jpg", packet.raw_frame, [cv2.IMWRITE_JPEG_QUALITY, 95])
+    assert photo.path.read_bytes() == jpeg.tobytes()
+    assert len(bundle.images) <= 6 and bundle.omitted_moving_objects == ()
+
+
+def test_brief_motion_resume_of_same_track_is_saved_between_ticks(tmp_path):
+    engine = EventCaptureEngine(tmp_path, "run", "camera:0")
+    times = sorted([float(t) for t in np.arange(0, 7, .5)] + [3.05, 3.1, 6.1])
+    bundle, = feed(engine, times, lambda t: t in (3, 3.1))
+    assert any(im.timestamp_sec == 3.1 and "motion_start" in im.roles for im in bundle.images)
+
+
+def test_continuous_motion_keeps_interval_sampling(tmp_path):
+    engine = EventCaptureEngine(tmp_path, "run", "camera:0")
+    feed(engine, [0, .5, 1, 1.5, 2, 2.5, 3, 3.1, 3.2], lambda t: t >= 3)
+    bundle, = engine.flush()
+    assert bundle.sample_count == 7
+    assert all(im.timestamp_sec not in (3.1, 3.2) for im in bundle.images)
+
+
+def test_photo_limit_reports_moving_objects_without_saved_evidence(tmp_path):
+    engine = EventCaptureEngine(tmp_path, "run", "camera:0", config=EventConfig(max_images=2))
+    times = sorted([float(t) for t in np.arange(0, 7, .5)] + [3.1, 6.1])
+    bundles = []
+    for i, t in enumerate(times):
+        bundles.extend(engine.process(*frame(i, t, t in (3, 3.1), track=99 if t == 3.1 else 1, empty=t > 3.1)))
+    bundle, = bundles
+    assert len(bundle.images) == 2
+    assert bundle.omitted_moving_objects == (("person", 99),)
+    document = json.loads(bundle.manifest_path.read_text())
+    assert document["omitted_moving_objects"] == [
+        {"class_name": "person", "track_id": 99}]
+
+
+def test_memory_pressure_keeps_brief_object_evidence_before_replaceable_context(tmp_path):
+    engine = EventCaptureEngine(tmp_path, "run", "camera:0", config=EventConfig(max_buffer_bytes=3600))
+    bundles = []
+    times = sorted([float(t) for t in np.arange(0, 7, .5)] + [3.1, 6.1])
+    for i, t in enumerate(times):
+        bundles.extend(engine.process(*frame(i, t, t in (3, 3.1), track=99 if t == 3.1 else 1, empty=t > 3.1)))
+    bundle, = bundles
+    assert engine.peak_buffer_bytes <= 3600 and bundle.buffer_dropped_frames > 0
+    assert any(o.track_id == 99 and o.moving for im in bundle.images for o in im.objects)
+    assert bundle.omitted_moving_objects == ()
+
+
+def test_one_off_grid_photo_can_preserve_multiple_new_objects(tmp_path):
+    engine = EventCaptureEngine(tmp_path, "run", "camera:0", config=EventConfig(max_images=4))
+    bundles = []
+    times = sorted([float(t) for t in np.arange(0, 7, .5)] + [3.1, 6.1])
+    for i, t in enumerate(times):
+        packet, decision = frame(i, t, t in (3, 3.1), empty=t > 3.1)
+        if t == 3.1:
+            person = replace(decision.objects[0], track_id=99)
+            dog = replace(person, detection_index=1, class_name="dog", class_id=16, track_id=100)
+            decision = replace(decision, persons=(person, dog))
+        bundles.extend(engine.process(packet, decision))
+    bundle, = bundles
+    photo, = [im for im in bundle.images if im.timestamp_sec == 3.1]
+    assert {o.track_id for o in photo.objects if o.moving} == {99, 100}
+    assert len(bundle.images) == 4 and bundle.omitted_moving_objects == ()
+
+
+def test_memory_eviction_still_records_evicted_unique_objects(tmp_path):
+    engine = EventCaptureEngine(tmp_path, "run", "camera:0", config=EventConfig(max_buffer_bytes=3600))
+    track_at = {3.0: 1, 3.1: 99, 3.2: 100, 3.3: 101, 3.4: 102}
+    times = sorted([0, .5, 1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5, 5.5, 6, 6.5, 7] + [3.1, 3.2, 3.3, 3.4])
+    bundles = []
+    for i, t in enumerate(times):
+        moving = t in track_at
+        bundles.extend(engine.process(*frame(i, t, moving,
+            track=track_at.get(t, 1), empty=not moving)))
+    bundle, = bundles
+    assert bundle.buffer_dropped_frames > 0
+    observed = {("person", track) for track in track_at.values()}
+    covered = {(o.class_name, o.track_id) for im in bundle.images for o in im.objects if o.moving}
+    assert {("person", 99), ("person", 100), ("person", 101)} <= set(bundle.omitted_moving_objects)
+    assert set(bundle.omitted_moving_objects) == observed - covered
+
+
+def test_prior_event_pre_context_photo_does_not_cover_current_event_motion(tmp_path):
+    engine = EventCaptureEngine(tmp_path, "run", "camera:0", config=EventConfig(quiet_sec=1, max_images=3))
+    schedule = {1.0: 99, 4.0: 1, 4.1: 99}
+    bundles = []
+    for i, t in enumerate([0, .5, 1, 1.5, 2, 2.5, 3, 3.5, 4, 4.1, 4.5, 5, 5.1, 5.5]):
+        track = schedule.get(t)
+        bundles.extend(engine.process(*frame(i, t, track is not None,
+            track=track if track is not None else 1, empty=track is None)))
+    event_a, event_b = bundles
+    assert event_a.event_id != event_b.event_id and event_a.omitted_moving_objects == ()
+    # The t=1 photo inherited from event A stays as pre-context...
+    assert any(im.timestamp_sec == 1.0 and im.phase == "before" for im in event_b.images)
+    # ...but track 99's t=4.1 motion has no in-window evidence, so it is reported.
+    assert all(im.timestamp_sec != 4.1 for im in event_b.images)
+    assert ("person", 99) in event_b.omitted_moving_objects
+
+
+def test_event_bundle_keeps_pre_change_constructor_compatible(tmp_path):
+    image = EventImage(tmp_path / "01_before_f00000006.jpg", 6, 3.0, "before", ("before",), (128, 72), ())
+    fields = dict(
+        run_id="run", event_id="run_e000001", part_index=1, camera_id="camera:0",
+        start_sec=0.0, end_sec=6.5, trigger_sec=3.0, last_motion_sec=3.5,
+        end_reason="QUIET", episode_end=True, context_complete=True,
+        pre_context_complete=True, post_context_complete=True,
+        buffer_dropped_frames=0, sampling_gap_count=0, sample_count=13,
+        images=(image,), analysis_roi=None, manifest_path=tmp_path / "event.json",
+    )
+    by_keywords = EventBundle(**fields)
+    assert by_keywords.omitted_moving_objects == ()
+    by_position = EventBundle(*fields.values())
+    assert by_position.images == (image,)
+    assert by_position.analysis_roi is None
+    assert by_position.manifest_path == fields["manifest_path"]
+    assert by_position.omitted_moving_objects == ()
+
+
+def test_select_photos_counts_only_in_window_photos_as_object_evidence():
+    def sample(index, timestamp, track, *, moving=True, pixels=100):
+        objects = (EventObject("person", track, .9, (0, 0, 10, 10), moving, pixels, .5),)
+        return _Sample(index, timestamp, b"", (128, 72), objects, moving)
+
+    pre = sample(0, 1.0, 99)                      # prior event's photo, pre-window
+    early = sample(1, 4.0, 1)                     # this event's trigger photo
+    carrier = sample(2, 4.5, 99, pixels=300)      # track 99 again, no motion_starts
+    tail = _Sample(3, 7.0, b"", (128, 72), (), False)
+    selected = select_photos([pre, early, carrier, tail], start=1.0, trigger=4.0,
+                             last_motion=4.5, max_images=4)
+    roles = {s.frame_index: chosen for s, chosen in selected}
+    # Pre-context is kept as a photo, but only an in-window photo satisfies this
+    # event's evidence for track 99 — so the carrier must earn the object role,
+    # not ride on the prior event's photo or the peak fallback.
+    assert roles[0] == ("before",)
+    assert "object" in roles[2]

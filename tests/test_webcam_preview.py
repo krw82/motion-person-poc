@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 
 from config import Config
-from contracts import Box, ContractError, ObjectDetection, VideoDecodeError, VideoOpenError
+from contracts import Box, CaptureResult, ContractError, ObjectDetection, VideoDecodeError, VideoOpenError
 from overlay_renderer import _status_lines, render_overlay
 from webcam_preview import PreviewProcessor, main, parse_args
 from webcam_source import WebcamSource
@@ -112,51 +112,52 @@ def test_invalid_camera_contracts_and_preview_cli():
 def test_preview_motion_and_detection_never_save_pixels_or_create_output_dirs(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     config = replace(Config(), warmup_sec=0, target_classes=('person', 'dog'), tracking=True)
-    processor = PreviewProcessor(config)
     obj = ObjectDetection(0, Box(10, 10, 90, 50), .9, 0, 'person', 1)
     calls = []
-    processor.detector = SimpleNamespace(detect=lambda frame: calls.append(frame.shape) or (obj,))
+    processor = PreviewProcessor(config, detector=SimpleNamespace(
+        detect=lambda frame: calls.append(frame.shape) or (obj,)))
     raw = np.full((60, 100, 3), 160, np.uint8)
     original = raw.copy()
-    packet, objects, motion, decision, disabled = processor.process(raw, 0, 0)
+    analysis = processor.process(raw, 0, 0)
+    # The preview path reports capture as disabled; the marker is built where it renders.
+    disabled = CaptureResult('DISABLED', None, 0, 0.0, None)
     assert calls == [(60, 100, 3)]
-    assert objects == (obj,) and not decision.candidate
-    assert disabled.status == 'DISABLED' and disabled.path is None and not disabled.saved_track_ids
+    assert analysis.objects == (obj,) and not analysis.decision.candidate
     assert np.array_equal(original, raw)
     assert list(tmp_path.iterdir()) == []
     metrics = {'preview': True, 'tracking': True, 'processing_fps': 20, 'frame_age_ms': 40}
-    rendered = render_overlay(packet, objects, motion, decision, disabled, metrics)
+    rendered = render_overlay(analysis.packet, analysis.objects, analysis.motion,
+                              analysis.decision, disabled, metrics)
     assert rendered.shape[1] > raw.shape[1]
     assert np.array_equal(original, raw)
-    lines = _status_lines(packet, decision, disabled, metrics)
+    lines = _status_lines(analysis.packet, analysis.decision, disabled, metrics)
     assert 'NO IMAGE SAVING' in lines[0]
     assert lines[1] == 'DETECTED 1 MOVING 0'
     # Establish background, then introduce motion inside the known object box.
     for i in range(1, 25):
-        packet, objects, motion, decision, disabled = processor.process(raw, i, i / 10)
+        analysis = processor.process(raw, i, i / 10)
     moving_frame = raw.copy()
     moving_frame[10:50, 10:90] = 255
-    packet, objects, motion, decision, disabled = processor.process(moving_frame, 25, 2.5)
-    assert decision.candidate
-    assert _status_lines(packet, decision, disabled, metrics)[1] == 'DETECTED 1 MOVING 1'
-    assert disabled.status == 'DISABLED' and disabled.path is None
+    analysis = processor.process(moving_frame, 25, 2.5)
+    assert analysis.decision.candidate
+    assert _status_lines(analysis.packet, analysis.decision, disabled, metrics)[1] == 'DETECTED 1 MOVING 1'
     # After the new posture settles the person remains detected without motion.
     for i in range(26, 80):
-        packet, objects, motion, decision, disabled = processor.process(moving_frame, i, i / 10)
-    assert len(objects) == 1 and not decision.candidate
-    assert _status_lines(packet, decision, disabled, metrics)[1] == 'DETECTED 1 MOVING 0'
+        analysis = processor.process(moving_frame, i, i / 10)
+    assert len(analysis.objects) == 1 and not analysis.decision.candidate
+    assert _status_lines(analysis.packet, analysis.decision, disabled, metrics)[1] == 'DETECTED 1 MOVING 0'
     assert list(tmp_path.iterdir()) == []
 
 
 def test_preview_rejects_replayed_indices_and_backwards_time():
-    processor = PreviewProcessor(Config())
-    processor.detector = SimpleNamespace(detect=lambda frame: ())
+    processor = PreviewProcessor(Config(), detector=SimpleNamespace(detect=lambda frame: ()))
     frame = np.zeros((60, 100, 3), np.uint8)
     processor.process(frame, 3, 1.)
     for index, timestamp in [(3, 2.), (2, 2.), (4, .9), (4, float('nan'))]:
         with pytest.raises(ContractError):
             processor.process(frame, index, timestamp)
-    assert processor.process(frame, 9, 2.)[-1].status == 'DISABLED'
+    # A valid increasing call still analyses after the rejected ones.
+    assert processor.process(frame, 9, 2.).decision.frame_index == 9
 
 
 def test_model_failure_does_not_open_camera_or_create_capture_log_folders(monkeypatch, tmp_path):

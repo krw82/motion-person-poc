@@ -1,20 +1,43 @@
 """Fixed-camera object motion capture, without cloud analysis."""
+
 __version__ = "0.2.0"
 
 from importlib import import_module
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from .config import Config
-    from .contracts import MotionPersonError
-    from .engine import MotionEngine, RunSummary
-    from .event_capture import EventBundle, EventConfig, EventImage, EventObject
+    from .domain.settings import Config as Config
+    from .domain.contracts import (
+        FrameAnalysis as FrameAnalysis,
+        MotionPersonError as MotionPersonError,
+    )
+    from .application.engine import (
+        MotionEngine as MotionEngine,
+        RunSummary as RunSummary,
+    )
+    from .domain.events import (
+        EventBundle as EventBundle,
+        EventConfig as EventConfig,
+        EventImage as EventImage,
+        EventObject as EventObject,
+    )
+    from .adapters.preview_encoder import (
+        FramePreview as FramePreview,
+        PreviewConfig as PreviewConfig,
+    )
 
 _EXPORTS = {
-    "MotionEngine": ".engine", "RunSummary": ".engine",
-    "EventConfig": ".event_capture", "EventBundle": ".event_capture",
-    "EventImage": ".event_capture", "EventObject": ".event_capture",
-    "Config": ".config", "MotionPersonError": ".contracts",
+    "MotionEngine": ".application.engine",
+    "RunSummary": ".application.engine",
+    "EventConfig": ".domain.events",
+    "EventBundle": ".domain.events",
+    "EventImage": ".domain.events",
+    "EventObject": ".domain.events",
+    "Config": ".domain.settings",
+    "MotionPersonError": ".domain.contracts",
+    "FrameAnalysis": ".domain.contracts",
+    "FramePreview": ".adapters.preview_encoder",
+    "PreviewConfig": ".adapters.preview_encoder",
 }
 __all__ = list(_EXPORTS)
 

@@ -4,7 +4,8 @@ from types import SimpleNamespace
 import cv2
 import numpy as np
 import pytest
-import torch
+torch = pytest.importorskip("torch")
+pytest.importorskip("ultralytics")
 from ultralytics.engine.results import Boxes
 from ultralytics.trackers.byte_tracker import BYTETracker
 

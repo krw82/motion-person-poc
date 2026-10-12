@@ -8,10 +8,13 @@ version = "0.2.0"
 description = "Fixed-camera YOLO and MOG2 motion event photo bundles"
 readme = "README.md"
 requires-python = ">=3.11"
-dependencies = ["opencv-python", "numpy", "ultralytics==8.4.174", "lap>=0.5.12"]
+dependencies = ["opencv-python", "numpy"]
 
 [project.optional-dependencies]
-test = ["pytest", "imageio-ffmpeg", "matplotlib"]
+yolo = ["ultralytics==8.4.174", "lap>=0.5.12"]
+web = ["fastapi>=0.115", "uvicorn>=0.30", "python-multipart>=0.0.18"]
+streamlit = ["streamlit>=1.37", "requests>=2.31"]
+test = ["pytest", "httpx", "imageio-ffmpeg", "matplotlib"]
 
 [project.scripts]
 motion-person = "motion_person.cli:main"

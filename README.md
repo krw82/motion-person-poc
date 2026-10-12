@@ -28,21 +28,26 @@ RTSP 입력과 실카메라 장시간 운용은 아직 구현·검증하지 않�
 기존 `models/yolo11n.pt` 또는 준비한 모델의 경로를 지정한다.
 
 ```bash
-.venv/bin/python -m pip install -e .
+.venv/bin/python -m pip install -e ".[yolo]"
 ```
+
+기본 설치(`pip install -e .`)는 NumPy·OpenCV만 설치한다. 기본 YOLO 탐지기를 쓰려면 `[yolo]`를
+선택한다. FastAPI 연결에는 `[web]`, Streamlit 화면에는 `[streamlit]`을 추가한다. `requirements.in`은
+기존 CLI의 YOLO 전체 설치용으로 유지한다. 모델·웹 예제·영상은 패키지 wheel에 포함하지 않는다.
+실제 내부 구조와 경량화 범위는 [아키텍처 안내](docs/architecture.md)에 정리했다.
 
 ```python
 from motion_person import MotionEngine
 
-# 영상: 원본 사진을 사건별로 저장. display=False로 창 없이 처리 가능.
+# 영상: 원본 사진을 사건별로 저장. 기본값은 창·실행 이력 없음.
 summary = MotionEngine.video(
     "input.mp4", objects=("person", "dog"),
     model_path="models/yolo11n.pt", output_dir="outputs",
     display=False, pace="fast",
 ).start()
 
-# 웹캠 화면 확인: 기본값은 저장 없음.
-MotionEngine.webcam().start()
+# Python 창에서 웹캠 화면 확인: 표시를 명시적으로 켠다. 저장 없음.
+MotionEngine.webcam(display=True).start()
 
 # 실제 감시: 웹캠에도 영상과 동일한 사건 캡처 엔진을 사용.
 MotionEngine.webcam(
@@ -57,6 +62,27 @@ MotionEngine.webcam(
 카메라 입력 대기/드라이버 종료에는 시간이 걸릴 수 있다. `duration_sec=30`으로 실행 시간을 제한한다.
 패키지의 기본 모델 경로와 직접 입력한 상대 경로는 호출한 작업 폴더 기준이다.
 고급 분석 값은 `Config`로 전달하며, 전달한 Config의 탐지·추적 설정을 그대로 따른다.
+
+`display=False`, `diagnostics=False`가 라이브러리 기본값이다. 사진과 최소 `event.json`은
+`capture=True`일 때 계속 저장한다. `diagnostics=True`로 실행 설정·상세 로그·요약을 추가할 수 있으며,
+진단 로그 쓰기 오류는 사진 완료 콜백을 막지 않는다. `summary.diagnostic_errors`로 오류 수를 확인한다.
+
+## FastAPI와 같은 PC의 웹캠을 프론트에 표시하기
+
+Python이 웹캠을 한 번 열고, FastAPI가 같은 실행의 미리보기·상태·사건 사진을 제공한다.
+React는 MJPEG 스트림을 `<img>`로 표시하고, Streamlit은 JPEG를 주기적으로 조회한다.
+브라우저에서 프레임을 업로드할 필요가 없다. 동영상 파일은 한 번 업로드해 서버에서 처리한다.
+
+- [바로 실행할 FastAPI·React·Streamlit 예제](examples/fastapi/README.md)
+- [역할별 폴더와 실행 수명 설명](docs/architecture.md)
+
+`FramePreview`는 분석 입력을 소비하지 않고 최신 프레임만 읽는다. 시청자가 없으면 표시용 JPEG를
+인코딩하지 않으며, 여러 시청자가 같은 JPEG 하나를 공유한다. 기본 미리보기는 폭 640px·최대 8fps·품질 75다.
+미리보기의 반전·박스·축소는 사건 원본 사진에 영향을 주지 않는다.
+
+`start()`는 블로킹 함수이므로 FastAPI가 별도 작업 스레드에서 실행하고, lifespan 종료에서 `stop()`과
+자원 정리를 수행한다. 예제는 카메라 1개·Uvicorn worker 1개를 기준으로 한다. Gemini 호출과 분석 결과는
+호스트에 둔다. 같은 PC 구성을 원격 서버에 배포하면 해당 서버에 연결된 카메라를 읽게 된다.
 
 ## 기본 사건 사진 묶음
 
@@ -96,6 +122,15 @@ summary = engine.start(on_event=handle_event)
 `context_complete`, `pre_context_complete`, `post_context_complete`, `sampling_gap_count`,
 `buffer_dropped_frames`에 표시한다. 없는 사후 사진을 만들어 내지 않는다.
 짧은 사건은 6장보다 적을 수 있다. 0.5초는 **후보 수집 간격**이며, 모든 후보를 파일로 보관하는 설정은 아니다.
+사건 기록 중 새 객체가 움직임 조건을 충족하거나 같은 객체의 움직임이 재개되면 간격을 기다리지 않고
+사진 후보를 추가한다. 최종 선별과 메모리 부족 시 사진 제거에서도 객체의 움직임 증거를 우선 보존한다.
+사진 3~6장 설정은 시간상 양 끝 사진을 유지한다. 2장 설정은 **첫 움직임 증거와 마지막 장면**을
+우선한다. 사진 수·메모리 제한 때문에 움직임 증거가 남지 않은 객체는
+`omitted_moving_objects`에 `{class_name, track_id}`로 기록한다. 추적을 끄면 같은 종류의 객체들을
+개별 구분할 수 없어 종류 단위로 처리한다. 사진 역할 `object`는 객체 증거, `motion_start`는 움직임 시작·재개다.
+`evidence_complete`는 움직임 사진 존재와 객체 증거 누락 여부를 나타낸다. `context_complete`는
+관측한 사전·사후 구간의 품질이며, 모든 맥락 사진이 최종 선택됐다는 뜻은 아니다.
+`RunSummary.episode_count`는 사건 수, `bundle_count`는 완료 묶음 수다. 기존 `event_count`는 묶음 수의 호환 필드다.
 
 3초 종료 기준은 실제 신체가 멈춘 순간이 아니라 **YOLO+MOG2 조건이 꺼진 시점**을 기준으로 한다.
 MOG2 배경 적응 중에는 정지한 대상이 잠시 전경으로 남을 수 있다. 이번 정지 제어 영상에서는
@@ -106,15 +141,14 @@ MOG2 배경 적응 중에는 정지한 대상이 잠시 전경으로 남을 수 
 
 ```text
 outputs/<run_id>/
-  run_config.json       실행 설정·버전
-  tracker.yaml          실제 추적 설정 (추적 사용 시)
-  events.jsonl          완료된 묶음·실행 종료·오류
-  summary.json          프레임·묶음·사진 수와 종료 이유
   events/<event_id>/part_0001/
     01_before_f00000000.jpg
     ...
     event.json          사진 시각·원본 좌표·종류·추적 번호·전경 근거
 ```
+
+`diagnostics=True` 또는 사건 CLI 실행에서는 실행 폴더에 `run_config.json`, `events.jsonl`,
+`summary.json`과 추적 설정 `tracker.yaml`도 생성한다. 라이브러리 기본 실행에서는 생성하지 않는다.
 
 압축 사진 버퍼의 기본 예산은 64 MiB이며, YOLO/원본 프레임을 포함한 전체 프로세스 메모리 한도는 아니다.
 미완성 버퍼는 종료 시 정리하고, 저장 실패를 성공으로 집계하지 않는다. 디스크 보관 기간·삭제 정책은
@@ -124,6 +158,10 @@ outputs/<run_id>/
 콜백이 예외를 내면 실행을 중단하고 자원을 정리하며, 이미 완성한 파일은 남긴다. 오류로 종료하며 보존한
 꼬리 구간은 외부 콜백으로 전달하지 않는다.
 인코딩·묶음 저장 자체가 실패한 미완성 후보는 버리고 오류로 종료한다. 이미 완료한 다른 묶음은 유지한다.
+다음 구간의 사진 인코딩이 실패해도 이미 저장된 묶음은 완료 로그와 콜백으로 한 번 전달한다.
+이 전달 중 콜백도 실패하면 최초 인코딩 오류를 유지하고 콜백 오류를 예외의 추가 정보에 남긴다.
+저수준 `EventCaptureEngine.process()`를 직접 사용하는 호출자는 오류 처리에서 `drain_completed()`로
+이미 저장된 묶음을 회수할 수 있다. 정상 `process()`·`flush()` 반환값과 중복되지 않는다.
 
 ## 사건 묶음을 CLI에서 테스트하기
 
@@ -142,9 +180,10 @@ outputs/<run_id>/
 개별 캡처용 `--log-dir`를 함께 지정하지 않는다. `--mask`는 화면 표시가 켜져 있을 때 사용한다.
 설치 후에는 같은 옵션으로 `motion-person webcam --capture` 또는 `motion-person video ... --events`를 쓸 수 있다.
 
-핵심 구현은 `motion_person/engine.py`(입력·실행·콜백·정리), `processor.py`(공통 탐지·판정),
-`event_capture.py`(버퍼·사건 상태·분할·선택·저장)에 있다. 기존 루트의 같은 이름 모듈들은
-패키지를 호출하는 호환 진입점이며, 기존 `main.py`의 개별 캡처·로그 계약은 유지한다.
+핵심 실행은 `motion_person/application/engine.py`, 공통 분석은 `application/processor.py`, 사건 상태는
+`application/event_capture.py`, 사진 선택은 `domain/photo_selection.py`에 있다. 실제 입출력 구현은
+`adapters/`, CLI·화면은 `presentation/`에 모았다. 기존 import 경로는 얇은 위임 파일로 유지하며,
+이 파일에 새로운 로직을 추가하지 않는다. 기존 개별 캡처·상세 이력 방식은 `presentation/legacy/`에 있다.
 
 ## macOS / Linux 빠른 시작
 
@@ -589,7 +628,9 @@ COOLDOWN이 동시에 표시되는 것은 정상이다 (조건은 만족했지�
 
 단위 테스트는 면적·좌표·시간 계산이 핵심이라는 이유로 합성 마스크와 합성 프레임 기반 경계
 테스트로 구성되어 있다 (SPEC.md 27.1). 실제 YOLO 모델을 로드하지 않는다. `object_detector`는
-lazy import 구조이므로 ultralytics/torch가 없는 환경에서도 테스트가 동작한다.
+lazy import 구조이므로 핵심 합성 테스트는 ultralytics/torch 없이 동작한다. 실제 ByteTrack/BoT-SORT
+연결 테스트는 `[yolo]`, FastAPI 예제 테스트는 `[web,test]`가 설치됐을 때 실행한다. 해당 의존성이
+없는 환경에서는 관련 테스트 파일을 건너뛴다. 전체 검증용 설치는 `pip install -e ".[yolo,web,test]"`다.
 
 ```powershell
 # Windows
